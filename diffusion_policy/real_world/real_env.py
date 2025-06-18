@@ -324,6 +324,7 @@ class RealEnv:
         receive_time = time.time()
         is_new = timestamps > receive_time
         new_actions = actions[is_new]
+        # print('executed action:', new_actions, '\n')
         new_timestamps = timestamps[is_new]
         new_stages = stages[is_new]
 

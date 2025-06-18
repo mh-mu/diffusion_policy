@@ -150,6 +150,7 @@ def main(input, output, robot_ip, match_dataset, match_episode,
             obs_float32=True,
             init_joints=init_joints,
             enable_multi_cam_vis=True,
+            video_capture_resolution=(640,480),
             record_raw_video=True,
             # number of threads per camera view for video recording (H.264)
             thread_per_video=3,
@@ -160,7 +161,8 @@ def main(input, output, robot_ip, match_dataset, match_episode,
 
             # Should be the same as demo
             # realsense exposure
-            env.realsense.set_exposure(exposure=120, gain=0)
+            # env.realsense.set_exposure(exposure=120, gain=0)
+            env.realsense.set_exposure(exposure=1000, gain=0)
             # realsense white balance
             env.realsense.set_white_balance(white_balance=5900)
 
@@ -233,6 +235,7 @@ def main(input, output, robot_ip, match_dataset, match_episode,
                     elif key_stroke == ord('c'):
                         # Exit human control loop
                         # hand control over to the policy
+                        print('Transitioning to policy control')
                         break
 
                     precise_wait(t_sample)
@@ -256,7 +259,8 @@ def main(input, output, robot_ip, match_dataset, match_episode,
                     target_pose[3:] = (drot * st.Rotation.from_rotvec(
                         target_pose[3:])).as_rotvec()
                     # clip target pose
-                    target_pose[:2] = np.clip(target_pose[:2], [0.25, -0.45], [0.77, 0.40])
+                    # target_pose[:2] = np.clip(target_pose[:2], [0.25, -0.45], [0.77, 0.40])
+                    # target_pose[:2] = np.clip(target_pose[:2], [0.5, -0.5], [0.1, -0.7])
 
                     # execute teleop command
                     env.exec_actions(

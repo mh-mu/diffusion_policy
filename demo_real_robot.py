@@ -49,6 +49,7 @@ def main(output, robot_ip, vis_camera_idx, init_joints, frequency, command_laten
                 frequency=frequency,
                 init_joints=init_joints,
                 enable_multi_cam_vis=True,
+                video_capture_resolution=(640,480),
                 record_raw_video=True,
                 # number of threads per camera view for video recording (H.264)
                 thread_per_video=3,
@@ -59,7 +60,8 @@ def main(output, robot_ip, vis_camera_idx, init_joints, frequency, command_laten
             cv2.setNumThreads(1)
 
             # realsense exposure
-            env.realsense.set_exposure(exposure=120, gain=0)
+            # env.realsense.set_exposure(exposure=120, gain=0)
+            env.realsense.set_exposure(exposure=1000, gain=0)
             # realsense white balance
             env.realsense.set_white_balance(white_balance=5900)
 
@@ -129,9 +131,10 @@ def main(output, robot_ip, vis_camera_idx, init_joints, frequency, command_laten
                 precise_wait(t_sample)
                 # get teleop command
                 sm_state = sm.get_motion_state_transformed()
-                # print(sm_state)
+                # print('spacemouse state', sm_state)
                 dpos = sm_state[:3] * (env.max_pos_speed / frequency)
                 drot_xyz = sm_state[3:] * (env.max_rot_speed / frequency)
+                # print('scaled pos', dpos)
                 
                 if not sm.is_button_pressed(0):
                     # translation mode
@@ -148,6 +151,7 @@ def main(output, robot_ip, vis_camera_idx, init_joints, frequency, command_laten
                     target_pose[3:])).as_rotvec()
 
                 # execute teleop command
+                # print('target pos', target_pose[:3])
                 env.exec_actions(
                     actions=[target_pose], 
                     timestamps=[t_command_target-time.monotonic()+time.time()],
