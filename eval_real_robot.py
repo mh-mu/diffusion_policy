@@ -263,6 +263,7 @@ def main(input, output, robot_ip, match_dataset, match_episode,
                     # target_pose[:2] = np.clip(target_pose[:2], [0.5, -0.5], [0.1, -0.7])
 
                     # execute teleop command
+                    print('eval target pose', target_pose[:3])
                     env.exec_actions(
                         actions=[target_pose], 
                         timestamps=[t_command_target-time.monotonic()+time.time()])
@@ -341,8 +342,8 @@ def main(input, output, robot_ip, match_dataset, match_episode,
                             action_timestamps = action_timestamps[is_new]
 
                         # clip actions
-                        this_target_poses[:,:2] = np.clip(
-                            this_target_poses[:,:2], [0.25, -0.45], [0.77, 0.40])
+                        # this_target_poses[:,:2] = np.clip(
+                        #     this_target_poses[:,:2], [0.25, -0.45], [0.77, 0.40])
 
                         # execute actions
                         env.exec_actions(
