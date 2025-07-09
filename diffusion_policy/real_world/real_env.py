@@ -24,6 +24,7 @@ DEFAULT_OBS_KEY_MAP = {
     'ActualTCPSpeed': 'robot_eef_pose_vel',
     'ActualQ': 'robot_joint',
     'ActualQd': 'robot_joint_vel',
+    'ActualTCPForce': 'robot_eef_force', # mh: TODO check if force is recorded this way
     # timestamps
     'step_idx': 'step_idx',
     'timestamp': 'timestamp'
@@ -328,12 +329,23 @@ class RealEnv:
         new_timestamps = timestamps[is_new]
         new_stages = stages[is_new]
 
+        # mh: separate action into pose and gripper
+        # new_actions_pos = new_actions[:, :6]
+        # new_actions_gripper = new_actions[:, 6:]
+
         # schedule waypoints
         for i in range(len(new_actions)):
             self.robot.schedule_waypoint(
                 pose=new_actions[i],
                 target_time=new_timestamps[i]
             )
+        # for i in range(len(new_actions_pos)):
+        #     self.robot.schedule_waypoint(
+        #         pose=new_actions_pos[i],
+        #         target_time=new_timestamps[i]
+        #     )
+
+        # mh: TODO execute gripper action with timestamp
         
         # record actions
         if self.action_accumulator is not None:

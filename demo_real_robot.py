@@ -61,14 +61,16 @@ def main(output, robot_ip, vis_camera_idx, init_joints, frequency, command_laten
 
             # realsense exposure
             # env.realsense.set_exposure(exposure=120, gain=0)
-            env.realsense.set_exposure(exposure=1000, gain=0)
+            env.realsense.set_exposure(exposure=300, gain=0)
             # realsense white balance
             env.realsense.set_white_balance(white_balance=5900)
 
             time.sleep(1.0)
             print('Ready!')
             state = env.get_robot_state()
+            # target_pose = state['TargetTCPPose']
             target_pose = state['TargetTCPPose']
+            print('Initial target pose shape:', target_pose.shape)
             t_start = time.monotonic()
             iter_idx = 0
             stop = False
