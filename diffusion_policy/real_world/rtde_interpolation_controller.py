@@ -113,7 +113,7 @@ class RTDEInterpolationController(mp.Process):
                 'ActualTCPSpeed',
                 'ActualQ',
                 'ActualQd',
-                'ActualTCPForce', # mh: TODO check if force is recorded this way
+                'ActualTCPForce',
 
                 'TargetTCPPose',
                 'TargetTCPSpeed',
