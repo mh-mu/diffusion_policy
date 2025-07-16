@@ -24,7 +24,7 @@ DEFAULT_OBS_KEY_MAP = {
     'ActualTCPSpeed': 'robot_eef_pose_vel',
     'ActualQ': 'robot_joint',
     'ActualQd': 'robot_joint_vel',
-    'ActualTCPForce': 'robot_eef_force', # mh: TODO check if force is recorded this way
+    'ActualTCPForce': 'robot_eef_force',
     # timestamps
     'step_idx': 'step_idx',
     'timestamp': 'timestamp'
@@ -293,6 +293,7 @@ class RealEnv:
         robot_obs = dict()
         for k, v in robot_obs_raw.items():
             robot_obs[k] = v[this_idxs]
+            # print('real_env, shape of observation:', k, v[this_idxs].shape)
 
         # accumulate obs
         if self.obs_accumulator is not None:

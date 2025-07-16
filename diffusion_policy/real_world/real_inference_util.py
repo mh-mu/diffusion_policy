@@ -29,9 +29,13 @@ def get_real_obs_dict(
             obs_dict_np[key] = np.moveaxis(out_imgs,-1,1)
         elif type == 'low_dim':
             this_data_in = env_obs[key]
-            if 'pose' in key and shape == (2,):
-                # take X,Y coordinates
-                this_data_in = this_data_in[...,[0,1]]
+            if 'pose' in key:
+                if shape == (2,):
+                    # take X,Y coordinates
+                    this_data_in = this_data_in[...,[0,1]]
+                elif shape == (3,):
+                    # take X,Y,Z coordinates
+                    this_data_in = this_data_in[...,[0,1,2]]
             obs_dict_np[key] = this_data_in
     return obs_dict_np
 

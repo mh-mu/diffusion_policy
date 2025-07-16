@@ -162,7 +162,7 @@ def main(input, output, robot_ip, match_dataset, match_episode,
             # Should be the same as demo
             # realsense exposure
             # env.realsense.set_exposure(exposure=120, gain=0)
-            env.realsense.set_exposure(exposure=1000, gain=0)
+            env.realsense.set_exposure(exposure=300, gain=0)
             # realsense white balance
             env.realsense.set_white_balance(white_balance=5900)
 
@@ -179,7 +179,7 @@ def main(input, output, robot_ip, match_dataset, match_episode,
                     lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
                 result = policy.predict_action(obs_dict)
                 action = result['action'][0].detach().to('cpu').numpy()
-                assert action.shape[-1] == 2
+                assert action.shape[-1] == 2 or 3 # mh: changed this
                 del result
 
             print('Ready!')
@@ -320,7 +320,13 @@ def main(input, output, robot_ip, match_dataset, match_episode,
                         else:
                             this_target_poses = np.zeros((len(action), len(target_pose)), dtype=np.float64)
                             this_target_poses[:] = target_pose
-                            this_target_poses[:,[0,1]] = action
+                            # this_target_poses[:,[0,1]] = action
+                            if action.shape[-1] == 2:
+                                this_target_poses[:,[0,1]] = action
+                            elif action.shape[-1] == 3:
+                                this_target_poses[:,[0,1,2]] = action
+                            else:
+                                raise Exception(f'Action need to be shape (2,) or (3,), received {action[-1]}')
 
                         # deal with timing
                         # the same step actions are always the target for

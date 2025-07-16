@@ -41,6 +41,7 @@ class MultiImageObsEncoder(ModuleAttrMixin):
             key_model_map['rgb'] = rgb_model
 
         obs_shape_meta = shape_meta['obs']
+        # print('encoder, obs_shape_meta', obs_shape_meta)
         for key, attr in obs_shape_meta.items():
             shape = tuple(attr['shape'])
             type = attr.get('type', 'low_dim')
@@ -171,7 +172,7 @@ class MultiImageObsEncoder(ModuleAttrMixin):
                 batch_size = data.shape[0]
             else:
                 assert batch_size == data.shape[0]
-            # print('image encoder lowdim shape:', key, data.shape)
+            print('image encoder lowdim shape:', key, data.shape)
             assert data.shape[1:] == self.key_shape_map[key]
             features.append(data)
         
