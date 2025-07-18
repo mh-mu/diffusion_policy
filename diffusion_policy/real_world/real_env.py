@@ -195,6 +195,9 @@ class RealEnv:
         self.obs_accumulator = None
         self.action_accumulator = None
         self.stage_accumulator = None
+        # force-torque zeroing
+        self.force_torque_baseline = dict()
+        self.baseline_calculated = False
 
         self.start_time = None
     
@@ -255,6 +258,38 @@ class RealEnv:
         # 125 hz, robot_receive_timestamp
         last_robot_data = self.robot.get_all_state()
         # both have more than n_obs_steps data
+
+        # Calculate and apply force/torque baseline at the beginning of the episode TODO: debug this
+        if not self.baseline_calculated:
+            # Find all force/torque keys available in the robot state
+            ft_keys = [key for key in last_robot_data.keys() 
+                       if 'force' in key.lower() or 'torque' in key.lower()]
+            
+            # Check if we have enough data for all found keys to calculate a baseline
+            can_calculate = True
+            if not ft_keys:
+                # No force/torque sensors, so we can consider baseline "calculated"
+                self.baseline_calculated = True
+            else:
+                for key in ft_keys:
+                    if len(last_robot_data[key]) < 20:
+                        can_calculate = False
+                        print(f"Not enough data to calculate baseline for {key}. Need at least 20 samples.")
+                        break
+
+            if can_calculate:
+                print("Sufficient data received. Calculating force/torque baseline...")
+                for key in ft_keys:
+                    baseline = np.mean(last_robot_data[key][:20], axis=0)
+                    self.force_torque_baseline[key] = baseline
+                    print(f"  - Baseline for {key}: {baseline}")
+                self.baseline_calculated = True
+
+        # Apply baseline if it has been calculated
+        if self.baseline_calculated:
+            for key, baseline in self.force_torque_baseline.items():
+                if key in last_robot_data:
+                    last_robot_data[key] = last_robot_data[key] - baseline
 
         # align camera obs timestamps
         dt = 1 / self.frequency
@@ -371,6 +406,11 @@ class RealEnv:
         self.start_time = start_time
 
         assert self.is_ready
+
+        # reset force baseline state for new episode TODO: debug this
+        self.force_torque_baseline = dict()
+        self.baseline_calculated = False
+        print("Force/torque baseline reset for new episode.")
 
         # prepare recording stuff
         episode_id = self.replay_buffer.n_episodes

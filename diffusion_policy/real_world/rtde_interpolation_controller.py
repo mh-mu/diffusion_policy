@@ -241,6 +241,12 @@ class RTDEInterpolationController(mp.Process):
             if self.joints_init is not None:
                 assert rtde_c.moveJ(self.joints_init, self.joints_init_speed, 1.4)
 
+            # zero ft sensor
+            # if self.verbose:
+            #     print("[RTDEPositionalController] Zeroing Force-Torque sensor.")
+            # rtde_c.zeroFtSensor()
+            # time.sleep(0.1)
+
             # main loop
             dt = 1. / self.frequency
             curr_pose = rtde_r.getActualTCPPose()
