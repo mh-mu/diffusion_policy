@@ -31,6 +31,8 @@ DEFAULT_OBS_KEY_MAP = {
 }
 
 class RealEnv:
+    FORCE_CALIBRATION_STEPS = 10
+
     def __init__(self, 
             # required params
             output_dir,
@@ -196,8 +198,8 @@ class RealEnv:
         self.action_accumulator = None
         self.stage_accumulator = None
         # force-torque zeroing
-        self.force_torque_baseline = dict()
-        self.baseline_calculated = False
+        self.force_offset = None
+        self.force_buffer = list()
 
         self.start_time = None
     
@@ -259,38 +261,6 @@ class RealEnv:
         last_robot_data = self.robot.get_all_state()
         # both have more than n_obs_steps data
 
-        # Calculate and apply force/torque baseline at the beginning of the episode TODO: debug this
-        if not self.baseline_calculated:
-            # Find all force/torque keys available in the robot state
-            ft_keys = [key for key in last_robot_data.keys() 
-                       if 'force' in key.lower() or 'torque' in key.lower()]
-            
-            # Check if we have enough data for all found keys to calculate a baseline
-            can_calculate = True
-            if not ft_keys:
-                # No force/torque sensors, so we can consider baseline "calculated"
-                self.baseline_calculated = True
-            else:
-                for key in ft_keys:
-                    if len(last_robot_data[key]) < 20:
-                        can_calculate = False
-                        print(f"Not enough data to calculate baseline for {key}. Need at least 20 samples.")
-                        break
-
-            if can_calculate:
-                print("Sufficient data received. Calculating force/torque baseline...")
-                for key in ft_keys:
-                    baseline = np.mean(last_robot_data[key][:20], axis=0)
-                    self.force_torque_baseline[key] = baseline
-                    print(f"  - Baseline for {key}: {baseline}")
-                self.baseline_calculated = True
-
-        # Apply baseline if it has been calculated
-        if self.baseline_calculated:
-            for key, baseline in self.force_torque_baseline.items():
-                if key in last_robot_data:
-                    last_robot_data[key] = last_robot_data[key] - baseline
-
         # align camera obs timestamps
         dt = 1 / self.frequency
         last_timestamp = np.max([x['timestamp'][-1] for x in self.last_realsense_data.values()])
@@ -324,7 +294,23 @@ class RealEnv:
         for k, v in last_robot_data.items():
             if k in self.obs_key_map:
                 robot_obs_raw[self.obs_key_map[k]] = v
+
+        # zero force sensor TODO: debug this
+        if 'robot_eef_force' in robot_obs_raw:
+            if self.force_offset is None and self.force_buffer is not None:
+                # Buffer initial raw force readings
+                self.force_buffer.extend(robot_obs_raw['robot_eef_force'])
+                if len(self.force_buffer) >= self.FORCE_CALIBRATION_STEPS:
+                    # Calculate and store the offset
+                    self.force_offset = np.mean(
+                        self.force_buffer[:self.FORCE_CALIBRATION_STEPS], axis=0)
+                    self.force_buffer = None # Clear buffer after calibration
+                    print(f"🤖 Force sensor zeroed with offset: {self.force_offset}")
         
+        if self.force_offset is not None and 'robot_eef_force' in robot_obs_raw:
+            robot_obs_raw['robot_eef_force'] -= self.force_offset
+        # end zeroing
+
         robot_obs = dict()
         for k, v in robot_obs_raw.items():
             robot_obs[k] = v[this_idxs]
@@ -404,6 +390,10 @@ class RealEnv:
         if start_time is None:
             start_time = time.time()
         self.start_time = start_time
+
+        # reset force baseline state TODO: debug this
+        self.force_offset = None
+        self.force_buffer = list()
 
         assert self.is_ready
 
