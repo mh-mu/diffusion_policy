@@ -397,11 +397,6 @@ class RealEnv:
 
         assert self.is_ready
 
-        # reset force baseline state for new episode TODO: debug this
-        self.force_torque_baseline = dict()
-        self.baseline_calculated = False
-        print("Force/torque baseline reset for new episode.")
-
         # prepare recording stuff
         episode_id = self.replay_buffer.n_episodes
         this_video_dir = self.video_dir.joinpath(str(episode_id))
