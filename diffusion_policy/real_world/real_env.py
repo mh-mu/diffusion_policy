@@ -343,6 +343,8 @@ class RealEnv:
         elif not isinstance(stages, np.ndarray):
             stages = np.array(stages, dtype=np.int64)
 
+        regulate_z_force = True
+
         # convert action to pose
         receive_time = time.time()
         is_new = timestamps > receive_time
@@ -351,35 +353,110 @@ class RealEnv:
         new_timestamps = timestamps[is_new]
         new_stages = stages[is_new]
 
-        # mh: separate action into pose and gripper
-        # new_actions_pos = new_actions[:, :6]
-        # new_actions_gripper = new_actions[:, 6:]
-
         # schedule waypoints
-        for i in range(len(new_actions)):
-            self.robot.schedule_waypoint(
-                pose=new_actions[i],
-                target_time=new_timestamps[i]
-            )
+        if regulate_z_force:
+            regulated_actions = self._apply_z_force_regulation(new_actions.copy(), force_threshold=5)
+            for i in range(len(regulated_actions)): 
+                self.robot.schedule_waypoint(
+                    pose=regulated_actions[i],
+                    target_time=new_timestamps[i]
+                )
+            if self.action_accumulator is not None:
+                self.action_accumulator.put(
+                    regulated_actions, 
+                    new_timestamps
+                )
+        else:
+            for i in range(len(new_actions)):
+                self.robot.schedule_waypoint(
+                    pose=new_actions[i],
+                    target_time=new_timestamps[i]
+                )
+            if self.action_accumulator is not None:
+                self.action_accumulator.put(
+                    new_actions, 
+                    new_timestamps
+                )
         # for i in range(len(new_actions_pos)):
         #     self.robot.schedule_waypoint(
         #         pose=new_actions_pos[i],
         #         target_time=new_timestamps[i]
         #     )
-
-        # mh: TODO execute gripper action with timestamp
         
-        # record actions
-        if self.action_accumulator is not None:
-            self.action_accumulator.put(
-                new_actions,
-                new_timestamps
-            )
+        # record actions and stages
+
         if self.stage_accumulator is not None:
             self.stage_accumulator.put(
                 new_stages,
                 new_timestamps
             )
+
+    def _apply_z_force_regulation(self, actions: np.ndarray, force_threshold: float = 5.0) -> np.ndarray:
+        """
+        Apply z-direction force feedback control to maintain specified force.
+        When force threshold is reached, adjusts z-position to maintain target force.
+        
+        Args:
+            actions: Array of actions with shape (n_actions, action_dim)
+            force_threshold: Target force to maintain in Newtons
+            
+        Returns:
+            regulated_actions: Modified actions with z-force feedback control applied
+        """
+        if actions.size == 0:
+            return actions
+            
+        current_robot_state = self.robot.get_state()
+        if current_robot_state is None:
+            return actions
+            
+        current_force = current_robot_state.get('ActualTCPForce', None)
+        print('current_force:', current_force)
+        if current_force is None or len(current_force) < 6:
+            return actions
+            
+        if self.force_offset is not None:
+            current_force = current_force - self.force_offset
+            
+        z_force = current_force[2]  # Current z-force
+        
+        regulated_actions = actions.copy()
+        
+        # Force feedback control parameters
+        kp_force = 0.0001  # Proportional gain for force control (m/N)
+        max_z_adjustment = 0.002  # Maximum z adjustment per step (2mm)
+        force_deadband = 0.5  # Force deadband around target (±0.5N)
+        
+        # Apply force feedback control when near or above threshold
+        if abs(z_force) >= (force_threshold - force_deadband):
+            # Get current TCP pose for reference
+            current_pose = current_robot_state.get('ActualTCPPose', None)
+            if current_pose is not None and len(current_pose) >= 6:
+                current_z = current_pose[2]
+                
+                # Calculate force error (positive error means too much force)
+                force_error = z_force - force_threshold
+                
+                # Calculate z adjustment (negative adjustment moves up, reducing force)
+                z_adjustment = -kp_force * force_error
+                
+                # Limit the adjustment magnitude for safety
+                z_adjustment = np.clip(z_adjustment, -max_z_adjustment, max_z_adjustment)
+                
+                # Apply force feedback control to all actions
+                for i in range(len(regulated_actions)):
+                    action = regulated_actions[i]
+                    if len(action) >= 6:  # Ensure action has at least 6 DOF (x,y,z,rx,ry,rz)
+                        # Adjust z-position based on force feedback
+                        original_z = action[2]
+                        adjusted_z = current_z + z_adjustment
+                        regulated_actions[i, 2] = adjusted_z
+                        
+                        print(f"🔧 Z-force feedback: Force={z_force:.2f}N (target={force_threshold:.1f}N), "
+                              f"error={force_error:.2f}N, z_adj={z_adjustment*1000:.2f}mm, "
+                              f"z: {original_z:.4f} → {adjusted_z:.4f}")
+        
+        return regulated_actions
     
     def get_robot_state(self):
         return self.robot.get_state()
