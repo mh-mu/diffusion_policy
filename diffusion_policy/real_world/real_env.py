@@ -200,6 +200,11 @@ class RealEnv:
         # force-torque zeroing
         self.force_offset = None
         self.force_buffer = list()
+        # force regulation state
+        self.force_feedback = False # turning on/off force feedback control
+        self.force_regulation_activated = False # when force feedback control activated, regulates when force control starts in episode
+        
+        self.within_episode = False
 
         self.start_time = None
     
@@ -295,16 +300,14 @@ class RealEnv:
             if k in self.obs_key_map:
                 robot_obs_raw[self.obs_key_map[k]] = v
 
-        # zero force sensor TODO: debug this
+        # zero force sensor 
         if 'robot_eef_force' in robot_obs_raw:
             if self.force_offset is None and self.force_buffer is not None:
-                # Buffer initial raw force readings
                 self.force_buffer.extend(robot_obs_raw['robot_eef_force'])
                 if len(self.force_buffer) >= self.FORCE_CALIBRATION_STEPS:
-                    # Calculate and store the offset
                     self.force_offset = np.mean(
                         self.force_buffer[:self.FORCE_CALIBRATION_STEPS], axis=0)
-                    self.force_buffer = None # Clear buffer after calibration
+                    self.force_buffer = None 
                     print(f"🤖 Force sensor zeroed with offset: {self.force_offset}")
         
         if self.force_offset is not None and 'robot_eef_force' in robot_obs_raw:
@@ -343,8 +346,6 @@ class RealEnv:
         elif not isinstance(stages, np.ndarray):
             stages = np.array(stages, dtype=np.int64)
 
-        regulate_z_force = True
-
         # convert action to pose
         receive_time = time.time()
         is_new = timestamps > receive_time
@@ -354,8 +355,8 @@ class RealEnv:
         new_stages = stages[is_new]
 
         # schedule waypoints
-        if regulate_z_force:
-            regulated_actions = self._apply_z_force_regulation(new_actions.copy(), force_threshold=5)
+        if self.force_feedback:
+            regulated_actions = self._apply_z_force_regulation(new_actions.copy(), force_threshold=4.0)
             for i in range(len(regulated_actions)): 
                 self.robot.schedule_waypoint(
                     pose=regulated_actions[i],
@@ -377,13 +378,6 @@ class RealEnv:
                     new_actions, 
                     new_timestamps
                 )
-        # for i in range(len(new_actions_pos)):
-        #     self.robot.schedule_waypoint(
-        #         pose=new_actions_pos[i],
-        #         target_time=new_timestamps[i]
-        #     )
-        
-        # record actions and stages
 
         if self.stage_accumulator is not None:
             self.stage_accumulator.put(
@@ -391,7 +385,7 @@ class RealEnv:
                 new_timestamps
             )
 
-    def _apply_z_force_regulation(self, actions: np.ndarray, force_threshold: float = 5.0) -> np.ndarray:
+    def _apply_z_force_regulation(self, actions: np.ndarray, force_threshold: float = -5.0) -> np.ndarray:
         """
         Apply z-direction force feedback control to maintain specified force.
         When force threshold is reached, adjusts z-position to maintain target force.
@@ -423,12 +417,17 @@ class RealEnv:
         regulated_actions = actions.copy()
         
         # Force feedback control parameters
-        kp_force = 0.0001  # Proportional gain for force control (m/N)
+        kp_force = 0.0004  # Proportional gain for force control (m/N)
         max_z_adjustment = 0.002  # Maximum z adjustment per step (2mm)
-        force_deadband = 0.5  # Force deadband around target (±0.5N)
+        force_deadband = 0.0  # Force deadband around target (±0.5N)
         
-        # Apply force feedback control when near or above threshold
-        if abs(z_force) >= (force_threshold - force_deadband):
+        # Check if force threshold has been reached for the first time
+        if self.within_episode and not self.force_regulation_activated and abs(z_force) >= force_threshold:
+            self.force_regulation_activated = True
+            print(f"🚀 Force regulation ACTIVATED: First threshold crossing at {z_force:.2f}N (threshold={force_threshold:.1f}N)")
+        
+        # Apply force feedback control only after first threshold crossing
+        if self.force_regulation_activated and abs(force_threshold - z_force) >= force_deadband:
             # Get current TCP pose for reference
             current_pose = current_robot_state.get('ActualTCPPose', None)
             if current_pose is not None and len(current_pose) >= 6:
@@ -437,8 +436,8 @@ class RealEnv:
                 # Calculate force error (positive error means too much force)
                 force_error = z_force - force_threshold
                 
-                # Calculate z adjustment (negative adjustment moves up, reducing force)
-                z_adjustment = -kp_force * force_error
+                # Calculate z adjustment (negative adjustment moves down, increasing force)
+                z_adjustment = kp_force * force_error
                 
                 # Limit the adjustment magnitude for safety
                 z_adjustment = np.clip(z_adjustment, -max_z_adjustment, max_z_adjustment)
@@ -455,7 +454,6 @@ class RealEnv:
                         print(f"🔧 Z-force feedback: Force={z_force:.2f}N (target={force_threshold:.1f}N), "
                               f"error={force_error:.2f}N, z_adj={z_adjustment*1000:.2f}mm, "
                               f"z: {original_z:.4f} → {adjusted_z:.4f}")
-        
         return regulated_actions
     
     def get_robot_state(self):
@@ -468,9 +466,13 @@ class RealEnv:
             start_time = time.time()
         self.start_time = start_time
 
-        # reset force baseline state TODO: debug this
+        self.within_episode = True
+
+        # reset force baseline state
         self.force_offset = None
         self.force_buffer = list()
+        # reset force regulation state for new episode
+        self.force_regulation_activated = False
 
         assert self.is_ready
 
@@ -509,6 +511,10 @@ class RealEnv:
         
         # stop video recorder
         self.realsense.stop_recording()
+
+        self.within_episode = False
+
+        self.force_regulation_activated = False
 
         if self.obs_accumulator is not None:
             # recording
