@@ -192,3 +192,71 @@ def real_data_to_replay_buffer(
             pbar.update(len(completed))
     return out_replay_buffer
 
+
+def real_lowdim_data_to_replay_buffer(
+        dataset_path: str, 
+        out_store: Optional[zarr.ABSStore]=None, 
+        lowdim_keys: Optional[Sequence[str]]=None,
+        lowdim_compressor=None,
+        ) -> ReplayBuffer:
+    """
+    Convert only lowdim data from a real dataset to replay buffer (no image processing).
+    
+    This function is much faster than real_data_to_replay_buffer when you only need
+    lowdim data (poses, forces, actions, etc.) and don't need image/video data.
+    
+    Args:
+        dataset_path: Path to dataset directory containing replay_buffer.zarr
+        out_store: Output zarr store. If None, uses MemoryStore
+        lowdim_keys: List of lowdim keys to copy. If None, copies all non-image keys
+        lowdim_compressor: Compressor for lowdim data. If None, uses no compression
+    
+    Returns:
+        ReplayBuffer containing only lowdim data
+    """
+    if out_store is None:
+        out_store = zarr.MemoryStore()
+    
+    # verify input
+    input = pathlib.Path(os.path.expanduser(dataset_path))
+    in_zarr_path = input.joinpath('replay_buffer.zarr')
+    assert in_zarr_path.is_dir(), f"replay_buffer.zarr not found in {dataset_path}"
+    
+    in_replay_buffer = ReplayBuffer.create_from_path(str(in_zarr_path.absolute()), mode='r')
+    
+    # if lowdim_keys not specified, use all keys except camera keys
+    if lowdim_keys is None:
+        lowdim_keys = []
+        for key, value in in_replay_buffer.data.items():
+            # skip camera/image keys (typically named 'camera_0', 'camera_1', etc.)
+            if not key.startswith('camera_'):
+                lowdim_keys.append(key)
+        print(f"Auto-detected lowdim keys: {lowdim_keys}")
+    
+    # save lowdim data to single chunk  
+    chunks_map = dict()
+    compressor_map = dict()
+    for key in lowdim_keys:
+        if key in in_replay_buffer.data:
+            chunks_map[key] = in_replay_buffer.data[key].shape
+            compressor_map[key] = lowdim_compressor
+        else:
+            print(f"Warning: key '{key}' not found in replay buffer")
+    
+    print('Loading lowdim data')
+    out_replay_buffer = ReplayBuffer.copy_from_store(
+        src_store=in_replay_buffer.root.store,
+        store=out_store,
+        keys=lowdim_keys,
+        chunks=chunks_map,
+        compressors=compressor_map
+        )
+    
+    print(f"Successfully loaded {len(lowdim_keys)} lowdim keys:")
+    for key in lowdim_keys:
+        if key in out_replay_buffer.data:
+            shape = out_replay_buffer.data[key].shape
+            print(f"  {key}: {shape}")
+    
+    return out_replay_buffer
+
