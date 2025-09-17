@@ -1,4 +1,4 @@
-name: real_wipe_lowdim
+name: real_wipe_lowdim_force
 
 image_shape: [3, 480, 640]
 dataset_path: data/demo_wipe
@@ -9,9 +9,9 @@ shape_meta: &shape_meta
     robot_eef_pose:
       shape: [3]
       type: low_dim
-    # robot_eef_force:
-    #   shape: [6]
-    #   type: low_dim
+    robot_eef_force:
+      shape: [6]
+      type: low_dim
   action: 
     shape: [3]
 
