@@ -17,7 +17,7 @@ shape_meta: &shape_meta
 
 # Extract dimensions from shape_meta
 action_dim: ${shape_meta.action.shape[0]}
-obs_dim: ${eval:'${shape_meta.obs.robot_eef_pose.shape[0]} + ${shape_meta.obs.robot_eef_force.shape[0]}'}
+obs_dim: ${shape_meta.obs.robot_eef_pose.shape[0]}
 
 env_runner:
   _target_: diffusion_policy.env_runner.real_wipe_lowdim_runner.RealWipeLowdimRunner
