@@ -4,19 +4,23 @@ image_shape: [3, 480, 640]
 dataset_path: data/demo_wipe
 
 shape_meta: &shape_meta
-  # acceptable types: rgb, low_dim
+  # acceptable types: low_dim
   obs:
     robot_eef_pose:
       shape: [3]
       type: low_dim
-    # robot_eef_force:
-    #   shape: [6]
-    #   type: low_dim
+    robot_eef_force:
+      shape: [6]
+      type: low_dim
   action: 
     shape: [3]
 
+# Extract dimensions from shape_meta
+action_dim: ${shape_meta.action.shape[0]}
+obs_dim: ${eval:'${shape_meta.obs.robot_eef_pose.shape[0]} + ${shape_meta.obs.robot_eef_force.shape[0]}'}
+
 env_runner:
-  _target_: diffusion_policy.env_runner.real_pusht_image_runner.RealPushTImageRunner
+  _target_: diffusion_policy.env_runner.real_wipe_lowdim_runner.RealWipeLowdimRunner
 
 dataset:
   _target_: diffusion_policy.dataset.real_lowdim_dataset.RealLowdimDataset

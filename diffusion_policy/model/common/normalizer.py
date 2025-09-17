@@ -52,6 +52,8 @@ class LinearNormalizer(DictOfTensorMixin):
         self.params_dict[key] = value.params_dict
 
     def _normalize_impl(self, x, forward=True):
+        # print("normalizer input", x.keys() if isinstance(x, dict) else x.shape)
+        # print("===================================")
         if isinstance(x, dict):
             result = dict()
             for key, value in x.items():

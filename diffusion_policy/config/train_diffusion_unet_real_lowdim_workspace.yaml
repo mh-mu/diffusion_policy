@@ -17,12 +17,14 @@ dataset_obs_steps: ${n_obs_steps}
 past_action_visible: False
 keypoint_visible_rate: 1.0
 obs_as_global_cond: True
+obs_as_local_cond: False
+pred_action_steps_only: False
 
 policy:
-  _target_: diffusion_policy.policy.diffusion_unet_lowdim_policy.DiffusionUnetLowdimPolicy
+  _target_: diffusion_policy.policy.diffusion_unet_lowdim_policy_mei.DiffusionUnetLowdimPolicy
 
   shape_meta: ${shape_meta}
-  
+
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
     num_train_timesteps: 100
@@ -36,34 +38,48 @@ policy:
     steps_offset: 0
     prediction_type: epsilon # or sample
 
-  obs_encoder:
-    _target_: diffusion_policy.model.vision.multi_image_obs_encoder.MultiImageObsEncoder
-    shape_meta: ${shape_meta}
-    rgb_model:
-      _target_: diffusion_policy.model.vision.model_getter.get_resnet
-      name: resnet18
-      weights: null
-    resize_shape: [240, 320]
-    crop_shape: [216, 288] # ch, cw 240x320 90%
-    random_crop: True
-    use_group_norm: True
-    share_rgb_model: False
-    imagenet_norm: True
+  model:
+    _target_: diffusion_policy.model.diffusion.conditional_unet1d.ConditionalUnet1D
+    input_dim: "${eval: ${task.action_dim} if ${obs_as_local_cond} or ${obs_as_global_cond} else ${task.obs_dim} + ${task.action_dim}}"
+    local_cond_dim: "${eval: ${task.obs_dim} if ${obs_as_local_cond} else None}"
+    global_cond_dim: "${eval: ${task.obs_dim}*${n_obs_steps} if ${obs_as_global_cond} else None}"
+    diffusion_step_embed_dim: 256
+    down_dims: [256, 512, 1024]
+    kernel_size: 5
+    n_groups: 8
+    cond_predict_scale: True
+
+  # obs_encoder:
+  #   _target_: diffusion_policy.model.vision.multi_image_obs_encoder.MultiImageObsEncoder
+  #   shape_meta: ${shape_meta}
+  #   rgb_model:
+  #     _target_: diffusion_policy.model.vision.model_getter.get_resnet
+  #     name: resnet18
+  #     weights: null
+  #   resize_shape: [240, 320]
+  #   crop_shape: [216, 288] # ch, cw 240x320 90%
+  #   random_crop: True
+  #   use_group_norm: True
+  #   share_rgb_model: False
+  #   imagenet_norm: True
 
   horizon: ${horizon}
   n_action_steps: ${eval:'${n_action_steps}+${n_latency_steps}'}
   n_obs_steps: ${n_obs_steps}
   num_inference_steps: 100
   obs_as_global_cond: ${obs_as_global_cond}
-  # crop_shape: null
-  diffusion_step_embed_dim: 128
-  down_dims: [512, 1024, 2048]
-  kernel_size: 5
-  n_groups: 8
-  cond_predict_scale: True
+  obs_as_local_cond: ${obs_as_local_cond}
+  pred_action_steps_only: ${pred_action_steps_only}
+  oa_step_convention: True
+  # # crop_shape: null
+  # diffusion_step_embed_dim: 128
+  # down_dims: [512, 1024, 2048]
+  # kernel_size: 5
+  # n_groups: 8
+  # cond_predict_scale: True
 
-  # scheduler.step params
-  # predict_epsilon: True
+  # # scheduler.step params
+  # # predict_epsilon: True
 
 ema:
   _target_: diffusion_policy.model.diffusion.ema_model.EMAModel

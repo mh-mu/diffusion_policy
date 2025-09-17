@@ -142,6 +142,7 @@ class RealLowdimDataset(BaseLowdimDataset):
         self.pad_after = pad_after
 
     def get_validation_dataset(self):
+        val_set = copy.copy(self)
         val_set.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer, 
             sequence_length=self.horizon+self.n_latency_steps,
