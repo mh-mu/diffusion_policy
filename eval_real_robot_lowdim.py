@@ -134,7 +134,7 @@ def main(input, output, robot_ip, match_dataset, match_episode,
     # setup experiment
     dt = 1/frequency
 
-    obs_res = get_real_obs_resolution(cfg.task.shape_meta) 
+    # obs_res = get_real_obs_resolution(cfg.task.shape_meta) #TODO: uncomment for image policies
     n_obs_steps = cfg.n_obs_steps
     print("n_obs_steps: ", n_obs_steps)
     print("steps_per_inference:", steps_per_inference)
@@ -146,7 +146,7 @@ def main(input, output, robot_ip, match_dataset, match_episode,
             robot_ip=robot_ip, 
             frequency=frequency,
             n_obs_steps=n_obs_steps,
-            obs_image_resolution=obs_res,
+            # obs_image_resolution=obs_res,
             obs_float32=True,
             init_joints=init_joints,
             enable_multi_cam_vis=True,
