@@ -356,7 +356,7 @@ class RealEnv:
 
         # schedule waypoints
         if self.force_feedback:
-            regulated_actions = self._apply_z_force_regulation(new_actions.copy(), force_threshold=4.0)
+            regulated_actions = self._apply_z_force_regulation(new_actions.copy(), force_threshold=15.0)
             for i in range(len(regulated_actions)): 
                 self.robot.schedule_waypoint(
                     pose=regulated_actions[i],
@@ -385,7 +385,7 @@ class RealEnv:
                 new_timestamps
             )
 
-    def _apply_z_force_regulation(self, actions: np.ndarray, force_threshold: float = -5.0) -> np.ndarray:
+    def _apply_z_force_regulation(self, actions: np.ndarray, force_threshold: float = 5.0) -> np.ndarray:
         """
         Apply z-direction force feedback control to maintain specified force.
         When force threshold is reached, adjusts z-position to maintain target force.
