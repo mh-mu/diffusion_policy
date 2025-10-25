@@ -2,13 +2,14 @@ from typing import Dict, Tuple, Union
 import copy
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision
 from diffusion_policy.model.vision.crop_randomizer import CropRandomizer
 from diffusion_policy.model.common.module_attr_mixin import ModuleAttrMixin
 from diffusion_policy.common.pytorch_util import dict_apply, replace_submodules
 
 
-class MultiImageObsEncoder(ModuleAttrMixin):
+class ImageForceAttentionEncoder(ModuleAttrMixin):
     def __init__(self,
             shape_meta: dict,
             rgb_model: Union[nn.Module, Dict[str,nn.Module]],
@@ -21,16 +22,26 @@ class MultiImageObsEncoder(ModuleAttrMixin):
             share_rgb_model: bool=False,
             # renormalize rgb input with imagenet normalization
             # assuming input in [0,1]
-            imagenet_norm: bool=False
+            imagenet_norm: bool=False,
+            # cross-attention parameters
+            force_projection_dim: int=512,
+            attention_num_heads: int=8,
+            attention_dropout: float=0.1
         ):
         """
         Assumes rgb input: B,C,H,W
         Assumes low_dim input: B,D
+        
+        New parameters:
+        - force_projection_dim: Dimension to project force features to match image features
+        - attention_num_heads: Number of attention heads for cross-attention
+        - attention_dropout: Dropout rate for attention layers
         """
         super().__init__()
 
         rgb_keys = list()
-        low_dim_keys = list()
+        low_dim_no_force_keys = list()
+        force_keys = list()
         key_model_map = nn.ModuleDict()
         key_transform_map = nn.ModuleDict()
         key_shape_map = dict()
@@ -111,24 +122,64 @@ class MultiImageObsEncoder(ModuleAttrMixin):
                 this_transform = nn.Sequential(this_resizer, this_randomizer, this_normalizer)
                 key_transform_map[key] = this_transform
             elif type == 'low_dim':
-                low_dim_keys.append(key)
+                # Categorize low-dim keys as force or non-force based on key name
+                if 'force' in key.lower() or 'wrench' in key.lower():
+                    force_keys.append(key)
+                else:
+                    low_dim_no_force_keys.append(key)
             else:
                 raise RuntimeError(f"Unsupported obs type: {type}")
+        
         rgb_keys = sorted(rgb_keys)
-        low_dim_keys = sorted(low_dim_keys)
+        low_dim_no_force_keys = sorted(low_dim_no_force_keys)
+        force_keys = sorted(force_keys)
+        
+        # Calculate total force dimension
+        total_force_dim = sum(key_shape_map[key][0] for key in force_keys) if force_keys else 0
+        total_lowdim_dim = sum(key_shape_map[key][0] for key in low_dim_no_force_keys) if low_dim_no_force_keys else 0
+        
+        # Initialize cross-attention components
+        self.force_projection_dim = force_projection_dim
+        self.has_force_data = total_force_dim > 0
+        self.has_lowdim_data = total_lowdim_dim > 0
+        
+        if self.has_force_data:
+            # Linear projection to map force features to match image feature dimension
+            self.force_projection = nn.Linear(total_force_dim, force_projection_dim)
+            
+            # Cross-attention layer (force attends to image)
+            self.cross_attention = nn.MultiheadAttention(
+                embed_dim=force_projection_dim,
+                num_heads=attention_num_heads,
+                dropout=attention_dropout,
+                batch_first=True
+            )
+            
+            # Layer normalization for attention output
+            self.attention_norm = nn.LayerNorm(force_projection_dim)
+            
+            # Final projection for joint embedding
+            self.joint_projection = nn.Sequential(
+                nn.Linear(force_projection_dim * 2, force_projection_dim),  # Concatenated image+force features
+                nn.ReLU(),
+                nn.Dropout(attention_dropout),
+                nn.Linear(force_projection_dim, force_projection_dim)
+            )
 
         self.shape_meta = shape_meta
         self.key_model_map = key_model_map
         self.key_transform_map = key_transform_map
         self.share_rgb_model = share_rgb_model
         self.rgb_keys = rgb_keys
-        self.low_dim_keys = low_dim_keys
+        self.low_dim_no_force_keys = low_dim_no_force_keys
+        self.force_keys = force_keys
         self.key_shape_map = key_shape_map
 
     def forward(self, obs_dict):
         batch_size = None
-        features = list()
-        # process rgb input
+        
+        # Step 1: Process RGB input to get image features
+        image_features = None
         if self.share_rgb_model:
             # pass all rgb obs to rgb model
             imgs = list()
@@ -150,10 +201,10 @@ class MultiImageObsEncoder(ModuleAttrMixin):
             # (B,N,D)
             feature = torch.moveaxis(feature,0,1)
             # (B,N*D)
-            feature = feature.reshape(batch_size,-1)
-            features.append(feature)
+            image_features = feature.reshape(batch_size,-1)
         else:
             # run each rgb obs to independent models
+            img_feats = []
             for key in self.rgb_keys:
                 img = obs_dict[key]
                 if batch_size is None:
@@ -163,21 +214,89 @@ class MultiImageObsEncoder(ModuleAttrMixin):
                 assert img.shape[1:] == self.key_shape_map[key]
                 img = self.key_transform_map[key](img)
                 feature = self.key_model_map[key](img)
-                features.append(feature)
+                img_feats.append(feature)
+            if img_feats:
+                image_features = torch.cat(img_feats, dim=-1)
         
-        # process lowdim input
-        for key in self.low_dim_keys:
+        # Step 2: Process force data
+        force_features = None
+        if self.has_force_data and self.force_keys:
+            force_data = []
+            for key in self.force_keys:
+                data = obs_dict[key]
+                if batch_size is None:
+                    batch_size = data.shape[0]
+                else:
+                    assert batch_size == data.shape[0]
+                print('force encoder lowdim shape:', key, data.shape)
+                assert data.shape[1:] == self.key_shape_map[key]
+                force_data.append(data)
+            
+            if force_data:
+                # Concatenate all force features
+                concatenated_force = torch.cat(force_data, dim=-1)  # [B, total_force_dim]
+                
+                # Project force features to match image feature dimension
+                force_features = self.force_projection(concatenated_force)  # [B, force_projection_dim]
+        
+        # Step 3: Cross-attention between image and force features
+        joint_features = None
+        if image_features is not None and force_features is not None:
+            # Prepare features for cross-attention
+            # Image features as key/value, force features as query
+            force_query = force_features.unsqueeze(1)  # [B, 1, force_projection_dim]
+            
+            # Check that image features match force projection dimension
+            if image_features.shape[-1] != self.force_projection_dim:
+                raise RuntimeError(
+                    f"Image features dimension ({image_features.shape[-1]}) does not match "
+                    f"force projection dimension ({self.force_projection_dim}). "
+                    f"Please ensure the RGB model output dimension matches the force_projection_dim parameter, "
+                    f"or use dynamic dimension detection in the constructor."
+                )
+            
+            image_key_value = image_features.unsqueeze(1)  # [B, 1, force_projection_dim]
+            
+            # Cross-attention: force attends to image
+            attended_features, attention_weights = self.cross_attention(
+                query=force_query,      # [B, 1, force_projection_dim]
+                key=image_key_value,    # [B, 1, force_projection_dim]
+                value=image_key_value   # [B, 1, force_projection_dim]
+            )
+            attended_features = attended_features.squeeze(1)  # [B, force_projection_dim]
+            
+            # Apply layer normalization
+            attended_features = self.attention_norm(attended_features)
+            
+            # Create joint embedding by concatenating original force and attended features
+            joint_input = torch.cat([force_features, attended_features], dim=-1)
+            joint_features = self.joint_projection(joint_input)  # [B, force_projection_dim]
+            
+        elif image_features is not None:
+            # Only image features available
+            joint_features = image_features
+        elif force_features is not None:
+            # Only force features available (unlikely case)
+            joint_features = force_features
+        
+        # Step 4: Process pose data and concatenate at the end
+        final_features = []
+        if joint_features is not None:
+            final_features.append(joint_features)
+        
+        # Add pose features at the end
+        for key in self.low_dim_no_force_keys:
             data = obs_dict[key]
             if batch_size is None:
                 batch_size = data.shape[0]
             else:
                 assert batch_size == data.shape[0]
-            print('image encoder lowdim shape:', key, data.shape)
+            print('pose encoder lowdim shape:', key, data.shape)
             assert data.shape[1:] == self.key_shape_map[key]
-            features.append(data)
+            final_features.append(data)
+
+        result = torch.cat(final_features, dim=-1)
         
-        # concatenate all features
-        result = torch.cat(features, dim=-1)
         return result
     
     @torch.no_grad()
