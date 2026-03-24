@@ -228,7 +228,7 @@ class ImageForceAttentionEncoder(ModuleAttrMixin):
                     batch_size = data.shape[0]
                 else:
                     assert batch_size == data.shape[0]
-                print('force encoder lowdim shape:', key, data.shape)
+                # print('force encoder lowdim shape:', key, data.shape)
                 assert data.shape[1:] == self.key_shape_map[key]
                 force_data.append(data)
             
@@ -291,7 +291,7 @@ class ImageForceAttentionEncoder(ModuleAttrMixin):
                 batch_size = data.shape[0]
             else:
                 assert batch_size == data.shape[0]
-            print('pose encoder lowdim shape:', key, data.shape)
+            # print('pose encoder lowdim shape:', key, data.shape)
             assert data.shape[1:] == self.key_shape_map[key]
             final_features.append(data)
 
